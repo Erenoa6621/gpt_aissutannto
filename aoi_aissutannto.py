@@ -4,21 +4,63 @@ import requests
 import json
 import csv
 import pyaudio
+import pygame
 from PIL import Image, ImageTk
+from threading import Thread
 recognizer = sr.Recognizer()
+pygame.init()
+pygame.mixer.init()
+
+KEYWORD = "やっほ"  
+
+def monitor_keyword():
+    with sr.Microphone() as source:
+        update_status("Listening for keyword...", "blue")
+        while running:
+            try:
+                audio = recognizer.listen(source, timeout=1, phrase_time_limit=5)
+                text = recognizer.recognize_google(audio, language='ja-JP')
+                if KEYWORD in text:
+                    start_voice_input()
+            except sr.WaitTimeoutError:
+                pass  # タイムアウトは無視
+            except sr.UnknownValueError:
+                pass  # 認識できない音声は無視
+            except sr.RequestError as e:
+                update_status(f"Error: {e}", "red")
+                print("Error:", e)
+        update_status("Stopped listening", "green")
+               
+
+def start_recording():
+    global running
+    running = True
+    update_status("Recording started", "blue")
+    Thread(target=monitor_keyword).start()
+
+def stop_recording():
+    global running
+    running = False
+    update_status("Recording stopped", "green")
 
 def start_voice_input():
+    play_beep()
     with sr.Microphone() as source:
         print("Please say something:")
         audio = recognizer.listen(source)
 
     try:
+        update_status("Processing voice input...", "blue")
         text = recognizer.recognize_google(audio, language='ja-JP')
+        play_end()
         aoi_anser = process_input_and_log(text)
         response_box.insert(tk.END, "あなたの質問: " + text + "\n" + "葵ちゃんからの解答:" + aoi_anser + "\n")
+        update_status("Ready", "green")
     except sr.UnknownValueError:
+        update_status("Could not understand audio", "red")
         response_box.insert(tk.END, "Could not understand audio\n")
     except sr.RequestError as e:
+        update_status(f"Error: {e}", "red")
         response_box.insert(tk.END, "Error: {0}\n".format(e))
     pass
 
@@ -83,7 +125,7 @@ def load_aoi_setting(filename="aoi_setting.txt"):
     with open(filename, "r" , encoding="utf-8") as file:
         return file.read().strip()
 
-def get_past_conversations(filename="chat_history.csv", max_conversations=8):
+def get_past_conversations(filename="chat_history.csv", max_conversations=4):
     conversations = []
 
     with open(filename, "r", encoding="utf-8") as file:
@@ -123,27 +165,78 @@ def text_to_speech(text, speaker_id=8):
     audio_response = synthesis.content
     return audio_response
 
+def update_status(message, color="black"):
+    """ ステータスメッセージを更新する関数 """
+    status_label.config(text=message, fg=color)
+
+def play_beep():
+    beep_sound = pygame.mixer.Sound('beep.mp3')
+    beep_sound.play()
+
+def play_end():
+    beep_sound = pygame.mixer.Sound('end.mp3')
+    beep_sound.play()
+
 # ウィンドウの作成
 window = tk.Tk()
 window.title("葵ちゃん Interface")
-window.geometry("600x300")  # ウィンドウの幅を増やします
+window.geometry("800x500")  # ウィンドウの幅と高さを設定
 
 # 画像の読み込みとサイズ調整
 image = Image.open("character_image.png")
-image = image.resize((130, 300), Image.Resampling.LANCZOS)  # 画像のサイズを調整
+image = image.resize((130, 300), Image.Resampling.LANCZOS)
 photo = ImageTk.PhotoImage(image)
 
+# メインフレームの作成
+main_frame = tk.Frame(window)
+main_frame.pack(expand=True, fill="both")
+
+# 左側のフレーム（画像表示用）
+left_frame = tk.Frame(main_frame, width=200)
+left_frame.grid(row=0, column=0, sticky="ns")
+left_frame.grid_propagate(False)
+
 # 画像ラベルの作成と配置
-image_label = tk.Label(window, image=photo)
-image_label.pack(side=tk.LEFT)
+image_label = tk.Label(left_frame, image=photo)
+image_label.pack(side="top", fill="both", expand=True)
+
+# 中央のフレーム（ボタンとテキストボックス用）
+center_frame = tk.Frame(main_frame, width=600)
+center_frame.grid(row=0, column=1, sticky="nsew")
+
+# ボタン用のフレーム
+button_frame = tk.Frame(center_frame)
+button_frame.pack(side="top", fill="x", pady=10)
 
 # ボタンの追加
-start_button = tk.Button(window, text="Start Voice Input", command=start_voice_input)
-start_button.pack(pady=10)
+start_voice_input_button = tk.Button(button_frame, text="Start Voice Input", command=start_voice_input)
+start_voice_input_button.pack(side="left", padx=10)
+
+start_recording_button = tk.Button(button_frame, text="Start Recording", command=start_recording)
+start_recording_button.pack(side="left", padx=10)
+
+stop_recording_button = tk.Button(button_frame, text="Stop Recording", command=stop_recording)
+stop_recording_button.pack(side="left", padx=10)
 
 # テキストボックスの追加
-response_box = tk.Text(window, height=10, width=50)
-response_box.pack(pady=10)
+response_box = tk.Text(center_frame, height=15, width=50)
+response_box.pack(padx=10, pady=10, fill="both", expand=True)
+
+# ステータス表示用のフレーム
+status_frame = tk.Frame(center_frame)
+status_frame.pack(side="bottom", fill="x")
+
+# ステータス表示用のラベルを追加
+status_label = tk.Label(status_frame, text="Ready", fg="green")
+status_label.pack(side="left", padx=10)
+
+# 中央フレームのグリッドウェイト設定
+center_frame.grid_rowconfigure(0, weight=1)
+center_frame.grid_columnconfigure(1, weight=1)
+
+# メインフレームのグリッドウェイト設定
+main_frame.grid_rowconfigure(0, weight=1)
+main_frame.grid_columnconfigure(1, weight=1)
 
 # ウィンドウの実行
 window.mainloop()
